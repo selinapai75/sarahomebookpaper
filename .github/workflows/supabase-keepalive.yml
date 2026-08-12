@@ -1,0 +1,22 @@
+name: Keep Supabase Awake
+
+on:
+  schedule:
+    # 每 3 天執行一次（UTC 時間凌晨 3 點），避免超過 Supabase 免費方案 7 天無活動就暫停的限制
+    - cron: '0 3 */3 * *'
+  workflow_dispatch: {}   # 允許在 GitHub Actions 頁面手動按「Run workflow」測試
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/user_settings?select=user_id&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
+          echo "Supabase responded with HTTP $status"
+          if [ "$status" -ge 400 ]; then
+            echo "::warning::Supabase ping returned an error status ($status)"
+          fi
