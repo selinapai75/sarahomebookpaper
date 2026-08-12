@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>家庭收支帳本</title>
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+
+<!-- ============ 登入畫面 ============ -->
+<div class="auth-wrap" id="authWrap">
+  <div class="auth-card">
+    <p class="cover-title" style="color:var(--ink)">家庭收支帳本</p>
+    <p class="auth-sub">登入後即可開始記帳，每個帳號的資料互相獨立</p>
+
+    <div class="type-toggle">
+      <button type="button" id="authTabLogin" class="active neutral">登入</button>
+      <button type="button" id="authTabSignup" class="neutral">註冊新帳號</button>
+    </div>
+
+    <div class="field">
+      <label for="authEmail">Email</label>
+      <input type="email" id="authEmail" placeholder="you@example.com" autocomplete="email">
+    </div>
+    <div class="field">
+      <label for="authPassword">密碼</label>
+      <input type="password" id="authPassword" placeholder="至少 6 個字元" autocomplete="current-password">
+    </div>
+
+    <div class="auth-error" id="authError" style="display:none;"></div>
+    <div class="auth-hint" id="authHint" style="display:none;"></div>
+
+    <button type="button" class="btn-primary" id="btnAuthSubmit" style="width:100%">登入</button>
+  </div>
+</div>
+
+<!-- ============ 主畫面（登入後顯示） ============ -->
+<div class="wrap" id="appWrap" style="display:none;">
+  <div class="cover">
+    <div class="header-icons">
+      <button id="btnOpenStats" aria-label="統計分析">📊</button>
+      <button id="btnOpenCatManager" aria-label="管理分類">⚙</button>
+      <button id="btnLogout" aria-label="登出">⎋</button>
+    </div>
+    <p class="cover-title">家庭收支帳本</p>
+    <p class="cover-sub" id="coverSub">日常收支・出差海外消費・公司代墊追蹤</p>
+    <div class="month-nav">
+      <button id="btnPrevMonth" aria-label="上個月">‹</button>
+      <span class="month-label" id="monthLabel"></span>
+      <button id="btnNextMonth" aria-label="下個月">›</button>
+    </div>
+  </div>
+
+  <div class="summary-row">
+    <div class="sum-card income"><div class="label">本月收入</div><div class="val" id="sumIncome">–</div></div>
+    <div class="sum-card expense"><div class="label">本月支出</div><div class="val" id="sumExpense">–</div></div>
+    <div class="sum-card net"><div class="label">本月結餘</div><div class="val" id="sumNet">–</div></div>
+  </div>
+  <div style="font-size:10px; color:var(--ink-soft); text-align:center; margin-top:6px;">＊以上僅計算台幣（TWD）項目</div>
+
+  <div id="storageWarning" class="storage-warning" style="display:none;"></div>
+
+  <div class="side-card">
+    <h3>💾 資料備份</h3>
+    <div class="backup-row">
+      <button type="button" class="backup-btn" id="btnExportBackup">⬇️ 匯出備份</button>
+      <button type="button" class="backup-btn" id="btnTriggerImport">⬆️ 匯入備份</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json" style="display:none;">
+    <div class="empty-note" style="margin-top:6px;">資料已自動同步到雲端（Supabase），匯出備份只是額外的保險</div>
+  </div>
+
+  <div class="side-card">
+    <h3>🛂 海外消費（依幣別）</h3>
+    <div class="chip-row" id="overseasChips"><span class="empty-note">本月尚無海外消費紀錄</span></div>
+  </div>
+
+  <div class="side-card">
+    <h3>📎 公司代墊待請款</h3>
+    <div class="chip-row" id="pendingChips"><span class="empty-note">目前沒有待請款項目</span></div>
+  </div>
+
+  <div class="entries" id="entriesList">
+    <div class="loading-note">帳本讀取中…</div>
+  </div>
+</div>
+
+<button class="fab" id="fabAdd" style="display:none;">✎ 記一筆</button>
+
+<div class="overlay" id="overlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h2 id="formTitle">新增一筆</h2>
+    <form id="entryForm">
+      <div class="type-toggle">
+        <button type="button" id="btnIncome" class="income">💰 收入</button>
+        <button type="button" id="btnExpense" class="expense">🧾 支出</button>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label for="fDate">日期</label>
+          <input type="date" id="fDate">
+        </div>
+        <div class="field">
+          <label for="fAmount">金額</label>
+          <input type="number" id="fAmount" inputmode="decimal" placeholder="0" min="0" step="0.01">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="fCategory">分類</label>
+        <div class="cat-row">
+          <select id="fCategory"></select>
+          <button type="button" class="add-btn" id="btnShowAddCategory" aria-label="新增分類">＋</button>
+        </div>
+        <div class="inline-add" id="addCatPanel">
+          <input type="text" id="newCatName" placeholder="新分類名稱">
+          <button type="button" class="confirm" id="btnConfirmAddCategory">新增</button>
+          <button type="button" class="cancel" id="btnCancelAddCategory">取消</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="fSubcategory">細分類</label>
+        <div class="cat-row">
+          <select id="fSubcategory"></select>
+          <button type="button" class="add-btn" id="btnShowAddSub" aria-label="新增細分類">＋</button>
+        </div>
+        <div class="inline-add" id="addSubPanel">
+          <input type="text" id="newSubName" placeholder="新細分類名稱">
+          <button type="button" class="confirm" id="btnConfirmAddSub">新增</button>
+          <button type="button" class="cancel" id="btnCancelAddSub">取消</button>
+        </div>
+      </div>
+
+      <div class="check-field">
+        <span>🛂 海外消費（此筆出差在國外花費）</span>
+        <label class="switch">
+          <input type="checkbox" id="fOverseas">
+          <span class="track"></span><span class="thumb"></span>
+        </label>
+      </div>
+      <div class="sub-panel" id="overseasPanel" style="display:none;">
+        <div class="field">
+          <label for="fCurrency">幣別</label>
+          <select id="fCurrency">
+            <option value="USD">USD 美元</option>
+            <option value="JPY">JPY 日圓</option>
+            <option value="CNY">CNY 人民幣</option>
+            <option value="EUR">EUR 歐元</option>
+            <option value="HKD">HKD 港幣</option>
+            <option value="KRW">KRW 韓元</option>
+            <option value="SGD">SGD 新加坡幣</option>
+            <option value="OTHER">其他</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="check-field" id="companyRow" style="display:none;">
+        <span>📎 代墊公司費用（待請款）</span>
+        <label class="switch">
+          <input type="checkbox" id="fCompany">
+          <span class="track"></span><span class="thumb"></span>
+        </label>
+      </div>
+      <div class="sub-panel" id="companyPanel" style="display:none;">
+        <label style="display:block; font-size:12px; color:var(--ink-soft); margin-bottom:5px; font-weight:500;">請款狀態</label>
+        <div class="status-toggle">
+          <button type="button" id="btnPending">待請款</button>
+          <button type="button" id="btnDone">已請款</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="fNote">備註</label>
+        <input type="text" id="fNote" placeholder="例如：東京出差晚餐">
+      </div>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn-delete" id="btnDeleteEntry" style="display:none;">刪除</button>
+        <button type="button" class="btn-secondary" id="btnCancelForm">取消</button>
+        <button type="button" class="btn-primary" id="btnSaveForm">儲存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="overlay" id="catOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h2>管理分類</h2>
+    <div class="type-toggle">
+      <button type="button" id="cmBtnIncome" class="income">💰 收入分類</button>
+      <button type="button" id="cmBtnExpense" class="expense">🧾 支出分類</button>
+    </div>
+    <div id="catManagerList"></div>
+    <div class="cm-add-main">
+      <input type="text" id="cmNewMain" placeholder="新增主分類名稱">
+      <button type="button" id="btnAddMain">新增主分類</button>
+    </div>
+    <div class="sheet-actions" style="margin-top:16px;">
+      <button type="button" class="btn-primary" id="btnCloseCatManager">完成</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="statsOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h2>統計分析</h2>
+    <div class="type-toggle">
+      <button type="button" id="statsBtnMonth" class="neutral">本月</button>
+      <button type="button" id="statsBtnYear" class="neutral">本年</button>
+    </div>
+    <div class="stats-period-nav">
+      <button type="button" id="btnStatsPrev" aria-label="上一期">‹</button>
+      <span class="stats-period-label" id="statsPeriodLabel"></span>
+      <button type="button" id="btnStatsNext" aria-label="下一期">›</button>
+    </div>
+
+    <div class="summary-row">
+      <div class="sum-card income"><div class="label">收入</div><div class="val" id="statsIncome">–</div></div>
+      <div class="sum-card expense"><div class="label">支出</div><div class="val" id="statsExpense">–</div></div>
+      <div class="sum-card net"><div class="label">結餘</div><div class="val" id="statsNet">–</div></div>
+    </div>
+
+    <div class="stats-section" id="statsYearTrendWrap" style="display:none;">
+      <h3>📈 全年收支趨勢</h3>
+      <div class="trend-legend">
+        <span><i class="income"></i>收入</span>
+        <span><i class="expense"></i>支出</span>
+      </div>
+      <div id="statsYearTrendList"></div>
+    </div>
+
+    <div class="stats-section">
+      <h3>🧾 支出分類佔比</h3>
+      <div id="statsBudgetSummary"></div>
+      <div id="statsExpenseCats"></div>
+    </div>
+
+    <div class="stats-section">
+      <h3>💰 收入分類佔比</h3>
+      <div id="statsIncomeCats"></div>
+    </div>
+
+    <div class="sheet-actions" style="margin-top:18px;">
+      <button type="button" class="btn-primary" id="btnCloseStats">完成</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
