@@ -53,8 +53,8 @@
   </div>
 
   <div class="summary-row">
-    <div class="sum-card income"><div class="label">本月收入</div><div class="val" id="sumIncome">–</div></div>
-    <div class="sum-card expense"><div class="label">本月支出</div><div class="val" id="sumExpense">–</div></div>
+    <div class="sum-card income clickable" id="cardIncome"><div class="label">本月收入</div><div class="val" id="sumIncome">–</div></div>
+    <div class="sum-card expense clickable" id="cardExpense"><div class="label">本月支出</div><div class="val" id="sumExpense">–</div></div>
     <div class="sum-card net"><div class="label">本月結餘</div><div class="val" id="sumNet">–</div></div>
   </div>
   <div style="font-size:10px; color:var(--ink-soft); text-align:center; margin-top:6px;">＊以上僅計算台幣（TWD）項目</div>
@@ -135,6 +135,19 @@
         </div>
       </div>
 
+      <div class="field">
+        <label for="fPaymentMethod">付款方式</label>
+        <div class="cat-row">
+          <select id="fPaymentMethod"></select>
+          <button type="button" class="add-btn" id="btnShowAddPayment" aria-label="新增付款方式">＋</button>
+        </div>
+        <div class="inline-add" id="addPaymentPanel">
+          <input type="text" id="newPaymentName" placeholder="新付款方式名稱">
+          <button type="button" class="confirm" id="btnConfirmAddPayment">新增</button>
+          <button type="button" class="cancel" id="btnCancelAddPayment">取消</button>
+        </div>
+      </div>
+
       <div class="check-field">
         <span>🛂 海外消費（此筆出差在國外花費）</span>
         <label class="switch">
@@ -196,11 +209,17 @@
     <div class="type-toggle">
       <button type="button" id="cmBtnIncome" class="income">💰 收入分類</button>
       <button type="button" id="cmBtnExpense" class="expense">🧾 支出分類</button>
+      <button type="button" id="cmBtnPayment" class="neutral">💳 付款方式</button>
     </div>
     <div id="catManagerList"></div>
-    <div class="cm-add-main">
+    <div id="paymentManagerList" style="display:none;"></div>
+    <div class="cm-add-main" id="cmAddMainRow">
       <input type="text" id="cmNewMain" placeholder="新增主分類名稱">
       <button type="button" id="btnAddMain">新增主分類</button>
+    </div>
+    <div class="cm-add-main" id="cmAddPaymentRow" style="display:none;">
+      <input type="text" id="cmNewPayment" placeholder="新增付款方式名稱">
+      <button type="button" id="btnAddPayment">新增</button>
     </div>
     <div class="sheet-actions" style="margin-top:16px;">
       <button type="button" class="btn-primary" id="btnCloseCatManager">完成</button>
@@ -250,6 +269,25 @@
 
     <div class="sheet-actions" style="margin-top:18px;">
       <button type="button" class="btn-primary" id="btnCloseStats">完成</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="detailOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h2 id="detailTitle">本月收入明細</h2>
+    <div class="stats-period-nav">
+      <button type="button" id="btnDetailPrev" aria-label="上個月">‹</button>
+      <span class="stats-period-label" id="detailPeriodLabel"></span>
+      <button type="button" id="btnDetailNext" aria-label="下個月">›</button>
+    </div>
+    <div class="summary-row" style="grid-template-columns:1fr;">
+      <div class="sum-card" id="detailSumCard"><div class="label" id="detailSumLabel">當月合計</div><div class="val" id="detailSumVal">–</div></div>
+    </div>
+    <div class="entries" id="detailEntriesList" style="margin-top:14px;"></div>
+    <div class="sheet-actions" style="margin-top:18px;">
+      <button type="button" class="btn-primary" id="btnCloseDetail">完成</button>
     </div>
   </div>
 </div>
