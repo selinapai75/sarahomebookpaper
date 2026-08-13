@@ -88,6 +88,19 @@ body{
 .sum-card.income .val{color:var(--green);}
 .sum-card.expense .val{color:var(--rust);}
 .sum-card.net .val{color:var(--ink);}
+.sum-card.clickable{cursor:pointer;}
+.sum-card.clickable:active{background: rgba(36,52,77,0.06);}
+
+/* ---- Payment method manager (flat list) ---- */
+.pm-row{
+  display:flex; align-items:center; gap:8px; border:1.5px solid var(--rule); border-radius:12px;
+  padding:10px 12px; margin-bottom:8px; background:var(--paper);
+}
+.pm-row .pm-name{flex:1; font-size:14px; font-weight:500;}
+.pm-row .cm-del{flex-shrink:0;}
+
+/* ---- Monthly detail modal ---- */
+.stamp.pay{border-color: var(--gold); color: var(--gold); transform:none;}
 
 .side-card{
   background: var(--paper-raised); border-radius:12px; padding:14px 16px; margin-top:12px;
