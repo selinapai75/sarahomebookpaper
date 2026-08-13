@@ -27,6 +27,7 @@ const CAT_ICON = {
   '餐飲': '🍜', '交通': '🚕', '住宿': '🏨', '水電': '💡', '教育': '📚', '醫療': '🩺', '娛樂': '🎬', '出差': '✈️', '其他': '🧾'
 };
 const CUR_SYMBOL = { TWD: 'NT$', USD: 'US$', JPY: '¥', CNY: '¥', EUR: '€', HKD: 'HK$', KRW: '₩', SGD: 'S$', OTHER: '' };
+const DEFAULT_PAYMENT_METHODS = ['現金', '信用卡', '轉帳', '行動支付'];
 
 /* ========================================================================
    狀態
@@ -35,6 +36,7 @@ let session = null;
 let entries = [];
 let categoryTree = JSON.parse(JSON.stringify(DEFAULT_CATS));
 let budgets = {};
+let paymentMethods = [...DEFAULT_PAYMENT_METHODS];
 let viewMonth = new Date().getMonth();
 let viewYear = new Date().getFullYear();
 let currentType = 'expense';
@@ -43,6 +45,9 @@ let editingId = null;
 let statsMode = 'month';
 let manageType = 'expense';
 let authMode = 'login';
+let detailType = 'income';
+let detailMonth = new Date().getMonth();
+let detailYear = new Date().getFullYear();
 
 const $ = (id) => document.getElementById(id);
 
@@ -153,14 +158,19 @@ async function loadAllData() {
         ? settingsRes.data.category_tree
         : JSON.parse(JSON.stringify(DEFAULT_CATS));
       budgets = settingsRes.data.budgets || {};
+      paymentMethods = Array.isArray(settingsRes.data.payment_methods) && settingsRes.data.payment_methods.length
+        ? settingsRes.data.payment_methods
+        : [...DEFAULT_PAYMENT_METHODS];
     } else {
       // 第一次登入，建立預設分類設定
       categoryTree = JSON.parse(JSON.stringify(DEFAULT_CATS));
       budgets = {};
+      paymentMethods = [...DEFAULT_PAYMENT_METHODS];
       const { error } = await supabase.from('user_settings').insert({
         user_id: session.user.id,
         category_tree: categoryTree,
-        budgets: budgets
+        budgets: budgets,
+        payment_methods: paymentMethods
       });
       if (error) console.error('建立預設設定失敗', error);
     }
@@ -187,6 +197,7 @@ function rowToEntry(row) {
     currency: row.currency,
     isCompany: row.is_company,
     reimburseStatus: row.reimburse_status || undefined,
+    paymentMethod: row.payment_method || '',
     createdAt: row.created_at
   };
 }
@@ -201,7 +212,8 @@ function entryToRow(e) {
     note: e.note || null,
     currency: e.currency,
     is_company: e.isCompany,
-    reimburse_status: e.isCompany ? (e.reimburseStatus || 'pending') : null
+    reimburse_status: e.isCompany ? (e.reimburseStatus || 'pending') : null,
+    payment_method: e.paymentMethod || null
   };
 }
 
@@ -221,9 +233,17 @@ async function persistBudgets() {
   if (error) { console.error(error); showToast('預算儲存失敗，請稍後再試'); }
 }
 
+async function persistPaymentMethods() {
+  const { error } = await supabase
+    .from('user_settings')
+    .update({ payment_methods: paymentMethods })
+    .eq('user_id', session.user.id);
+  if (error) { console.error(error); showToast('付款方式儲存失敗，請稍後再試'); }
+}
+
 /* ---- 備份匯出/匯入（仍然可用，作為額外保險） ---- */
 function exportBackup() {
-  const data = { entries, categoryTree, budgets, exportedAt: new Date().toISOString() };
+  const data = { entries, categoryTree, budgets, paymentMethods, exportedAt: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -258,11 +278,15 @@ async function importBackup(event) {
 
     showToast('匯入中，請稍候…');
 
-    // 覆蓋分類與預算
+    // 覆蓋分類、預算與付款方式
     categoryTree = data.categoryTree;
     budgets = data.budgets || {};
+    paymentMethods = Array.isArray(data.paymentMethods) && data.paymentMethods.length
+      ? data.paymentMethods
+      : [...DEFAULT_PAYMENT_METHODS];
     await persistCategories();
     await persistBudgets();
+    await persistPaymentMethods();
 
     // 覆蓋 entries：先刪除目前使用者所有紀錄，再整批寫入備份內容
     const { error: delError } = await supabase.from('entries').delete().eq('user_id', session.user.id);
@@ -352,12 +376,21 @@ function render() {
 }
 
 function renderList(me) {
-  const el = $('entriesList');
-  if (me.length === 0) {
-    el.innerHTML = `<div class="no-entries"><div class="big">📖</div>這個月還沒有任何紀錄<br>點下方「記一筆」開始記帳</div>`;
+  groupAndRenderEntries(
+    me,
+    $('entriesList'),
+    `<div class="no-entries"><div class="big">📖</div>這個月還沒有任何紀錄<br>點下方「記一筆」開始記帳</div>`,
+    (id) => editEntry(id)
+  );
+}
+
+// 共用：把一批 entries 依日期分組渲染成清單，用在首頁清單 / 當月收支明細彈窗
+function groupAndRenderEntries(list, el, emptyHtml, onEntryClick) {
+  if (list.length === 0) {
+    el.innerHTML = emptyHtml;
     return;
   }
-  const sorted = [...me].sort((a, b) => b.date.localeCompare(a.date) || new Date(b.createdAt) - new Date(a.createdAt));
+  const sorted = [...list].sort((a, b) => b.date.localeCompare(a.date) || new Date(b.createdAt) - new Date(a.createdAt));
   const groups = {};
   sorted.forEach((e) => { (groups[e.date] = groups[e.date] || []).push(e); });
 
@@ -378,6 +411,7 @@ function renderList(me) {
       const catLabel = e.subcategory ? `${e.category} › ${e.subcategory}` : e.category;
       let badges = '';
       if (e.currency !== 'TWD') badges += `<span class="stamp">${e.currency}</span>`;
+      if (e.paymentMethod) badges += `<span class="stamp pay">💳 ${escapeHtml(e.paymentMethod)}</span>`;
       if (e.isCompany) badges += `<span class="tag ${e.reimburseStatus === 'reimbursed' ? 'done' : ''}">${e.reimburseStatus === 'reimbursed' ? '已請款' : '待請款'}</span>`;
       html += `<div class="entry" data-entry-id="${e.id}">
         <div class="entry-icon ${e.type}">${icon}</div>
@@ -394,8 +428,53 @@ function renderList(me) {
   el.innerHTML = html;
 
   el.querySelectorAll('[data-entry-id]').forEach((node) => {
-    node.addEventListener('click', () => editEntry(node.getAttribute('data-entry-id')));
+    node.addEventListener('click', () => onEntryClick(node.getAttribute('data-entry-id')));
   });
+}
+
+/* ========================================================================
+   當月收入／支出明細彈窗（點擊首頁「本月收入」「本月支出」卡片觸發）
+   ======================================================================== */
+function openDetail(type) {
+  detailType = type;
+  detailMonth = viewMonth;
+  detailYear = viewYear;
+  renderDetail();
+  $('detailOverlay').classList.add('open');
+}
+
+function closeDetail() {
+  $('detailOverlay').classList.remove('open');
+}
+
+function detailChangePeriod(delta) {
+  detailMonth += delta;
+  if (detailMonth < 0) { detailMonth = 11; detailYear--; }
+  if (detailMonth > 11) { detailMonth = 0; detailYear++; }
+  renderDetail();
+}
+
+function renderDetail() {
+  $('detailTitle').textContent = detailType === 'income' ? '💰 收入明細' : '🧾 支出明細';
+  $('detailSumLabel').textContent = detailType === 'income' ? '當月收入合計' : '當月支出合計';
+  $('detailPeriodLabel').textContent = `${detailYear} 年 ${detailMonth + 1} 月`;
+  $('detailSumCard').className = 'sum-card ' + detailType;
+
+  const list = entries.filter((e) => {
+    const d = new Date(e.date);
+    return d.getFullYear() === detailYear && d.getMonth() === detailMonth && e.type === detailType;
+  });
+
+  let sum = 0;
+  list.forEach((e) => { if (e.currency === 'TWD') sum += Number(e.amount); });
+  $('detailSumVal').textContent = 'NT$ ' + fmtMoney(sum);
+
+  groupAndRenderEntries(
+    list,
+    $('detailEntriesList'),
+    `<div class="no-entries"><div class="big">📖</div>這個月沒有相關紀錄</div>`,
+    (id) => { closeDetail(); editEntry(id); }
+  );
 }
 
 function escapeHtml(s) {
@@ -597,7 +676,7 @@ function renderStats() {
 function openCatManager() {
   manageType = 'expense';
   updateManageTypeButtons();
-  renderCategoryManager();
+  renderManagerPane();
   $('catOverlay').classList.add('open');
 }
 function closeCatManager() {
@@ -606,11 +685,54 @@ function closeCatManager() {
 function setManageType(t) {
   manageType = t;
   updateManageTypeButtons();
-  renderCategoryManager();
+  renderManagerPane();
 }
 function updateManageTypeButtons() {
   $('cmBtnIncome').classList.toggle('active', manageType === 'income');
   $('cmBtnExpense').classList.toggle('active', manageType === 'expense');
+  $('cmBtnPayment').classList.toggle('active', manageType === 'payment');
+}
+function renderManagerPane() {
+  const isPayment = manageType === 'payment';
+  $('catManagerList').style.display = isPayment ? 'none' : 'block';
+  $('paymentManagerList').style.display = isPayment ? 'block' : 'none';
+  $('cmAddMainRow').style.display = isPayment ? 'none' : 'flex';
+  $('cmAddPaymentRow').style.display = isPayment ? 'flex' : 'none';
+  if (isPayment) renderPaymentManager(); else renderCategoryManager();
+}
+
+/* ---- 付款方式管理（扁平清單，可新增／刪除） ---- */
+function renderPaymentManager() {
+  const list = $('paymentManagerList');
+  if (paymentMethods.length === 0) {
+    list.innerHTML = '<div class="cm-empty">目前沒有付款方式，請在下方新增</div>';
+    return;
+  }
+  list.innerHTML = paymentMethods.map((p) => `
+    <div class="pm-row">
+      <span class="pm-name">${escapeHtml(p)}</span>
+      <button type="button" class="cm-del" onclick="window.__ledger.deletePaymentMethod('${escAttr(p)}')">刪除</button>
+    </div>
+  `).join('');
+}
+
+async function deletePaymentMethod(name) {
+  if (!confirm(`確定要刪除付款方式「${name}」嗎？（已記錄的帳目不會受影響，只是之後選單裡不會再出現）`)) return;
+  paymentMethods = paymentMethods.filter((p) => p !== name);
+  await persistPaymentMethods();
+  renderPaymentManager();
+  showToast('已刪除付款方式「' + name + '」');
+}
+
+async function addPaymentFromManager() {
+  const input = $('cmNewPayment');
+  const name = input.value.trim();
+  if (!name) return;
+  if (!paymentMethods.includes(name)) paymentMethods.push(name);
+  input.value = '';
+  await persistPaymentMethods();
+  renderPaymentManager();
+  showToast('已新增付款方式「' + name + '」');
 }
 
 function renderCategoryManager() {
@@ -776,6 +898,8 @@ function openForm() {
   $('fOverseas').checked = false;
   $('fCompany').checked = false;
   toggleOverseas();
+  populatePaymentSelect('');
+  hideAddPayment();
   setType('expense');
   setReimburseStatus('pending');
   $('overlay').classList.add('open');
@@ -858,6 +982,31 @@ async function confirmAddSubcategory() {
   showToast('已新增細分類「' + name + '」');
 }
 
+/* ---- 付款方式（記帳表單內的下拉選單 + 快速新增） ---- */
+function populatePaymentSelect(selected) {
+  const sel = $('fPaymentMethod');
+  sel.innerHTML = '<option value="">(未指定)</option>' + paymentMethods.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  sel.value = selected && paymentMethods.includes(selected) ? selected : '';
+}
+
+function showAddPayment() {
+  $('addPaymentPanel').classList.add('open');
+  $('newPaymentName').value = '';
+  $('newPaymentName').focus();
+}
+function hideAddPayment() {
+  $('addPaymentPanel').classList.remove('open');
+}
+async function confirmAddPayment() {
+  const name = $('newPaymentName').value.trim();
+  if (!name) return;
+  if (!paymentMethods.includes(name)) paymentMethods.push(name);
+  await persistPaymentMethods();
+  populatePaymentSelect(name);
+  hideAddPayment();
+  showToast('已新增付款方式「' + name + '」');
+}
+
 function toggleOverseas() {
   const on = $('fOverseas').checked;
   $('overseasPanel').style.display = on ? 'block' : 'none';
@@ -884,6 +1033,7 @@ async function saveEntry() {
   const overseas = $('fOverseas').checked;
   const currency = overseas ? $('fCurrency').value : 'TWD';
   const isCompany = $('fCompany').checked;
+  const paymentMethod = $('fPaymentMethod').value;
 
   if (!date || !amount || amount <= 0) {
     showToast('請輸入日期與金額');
@@ -891,7 +1041,7 @@ async function saveEntry() {
   }
 
   const draft = {
-    date, amount, category, subcategory, note, currency, isCompany,
+    date, amount, category, subcategory, note, currency, isCompany, paymentMethod,
     type: currentType,
     reimburseStatus: isCompany ? currentStatus : undefined
   };
@@ -938,6 +1088,8 @@ function editEntry(id) {
   $('fCompany').checked = !!e.isCompany;
   toggleCompany();
   setReimburseStatus(e.reimburseStatus || 'pending');
+  populatePaymentSelect(e.paymentMethod || '');
+  hideAddPayment();
   $('overlay').classList.add('open');
 }
 
@@ -989,6 +1141,9 @@ function setupEventListeners() {
   $('btnShowAddSub').addEventListener('click', showAddSubcategory);
   $('btnConfirmAddSub').addEventListener('click', confirmAddSubcategory);
   $('btnCancelAddSub').addEventListener('click', hideAddSubcategory);
+  $('btnShowAddPayment').addEventListener('click', showAddPayment);
+  $('btnConfirmAddPayment').addEventListener('click', confirmAddPayment);
+  $('btnCancelAddPayment').addEventListener('click', hideAddPayment);
   $('fOverseas').addEventListener('change', toggleOverseas);
   $('fCompany').addEventListener('change', toggleCompany);
   $('btnPending').addEventListener('click', () => setReimburseStatus('pending'));
@@ -1000,8 +1155,18 @@ function setupEventListeners() {
   // Category manager
   $('cmBtnIncome').addEventListener('click', () => setManageType('income'));
   $('cmBtnExpense').addEventListener('click', () => setManageType('expense'));
+  $('cmBtnPayment').addEventListener('click', () => setManageType('payment'));
   $('btnAddMain').addEventListener('click', addMainFromManager);
+  $('btnAddPayment').addEventListener('click', addPaymentFromManager);
   $('btnCloseCatManager').addEventListener('click', closeCatManager);
+
+  // 本月收入／支出明細彈窗
+  $('cardIncome').addEventListener('click', () => openDetail('income'));
+  $('cardExpense').addEventListener('click', () => openDetail('expense'));
+  $('btnDetailPrev').addEventListener('click', () => detailChangePeriod(-1));
+  $('btnDetailNext').addEventListener('click', () => detailChangePeriod(1));
+  $('btnCloseDetail').addEventListener('click', closeDetail);
+  $('detailOverlay').addEventListener('click', (e) => { if (e.target.id === 'detailOverlay') closeDetail(); });
 
   // Stats
   $('statsBtnMonth').addEventListener('click', () => setStatsRange('month'));
@@ -1018,7 +1183,7 @@ function setupEventListeners() {
 
 // 分類管理清單是用字串拼接產生的 HTML，裡面用 onclick="window.__ledger.xxx(...)" 呼叫，
 // 所以把需要用到的函式掛在 window.__ledger 上。
-window.__ledger = { moveMain, moveSub, deleteMain, deleteSub, moveSubToMain, setBudget, addSubFromManager };
+window.__ledger = { moveMain, moveSub, deleteMain, deleteSub, moveSubToMain, setBudget, addSubFromManager, deletePaymentMethod };
 
 /* ========================================================================
    啟動
@@ -1038,6 +1203,7 @@ async function init() {
       entries = [];
       categoryTree = JSON.parse(JSON.stringify(DEFAULT_CATS));
       budgets = {};
+      paymentMethods = [...DEFAULT_PAYMENT_METHODS];
       showAuthScreen();
     }
   });
